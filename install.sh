@@ -79,20 +79,27 @@ echo -e "${GREEN}✓ Piper neural engine is ready.${NC}"
 
 # 4. Download Natural Neural Voice Models
 echo -e "${BLUE}[5/6] Verifying neural voice models...${NC}"
-HF_VOICES_URL="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US"
+HF_BASE="https://huggingface.co/rhasspy/piper-voices/resolve"
 
 # Model 1: Lessac (Default studio-quality American voice)
 if [[ ! -f "$INSTALL_DIR/voices/en_US-lessac-medium.onnx" ]]; then
     echo "Downloading en_US-lessac-medium voice model..."
-    curl -L -s "$HF_VOICES_URL/lessac/medium/en_US-lessac-medium.onnx" -o "$INSTALL_DIR/voices/en_US-lessac-medium.onnx"
-    curl -L -s "$HF_VOICES_URL/lessac/medium/en_US-lessac-medium.onnx.json" -o "$INSTALL_DIR/voices/en_US-lessac-medium.onnx.json"
+    curl -L -s "$HF_BASE/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx" -o "$INSTALL_DIR/voices/en_US-lessac-medium.onnx"
+    curl -L -s "$HF_BASE/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json" -o "$INSTALL_DIR/voices/en_US-lessac-medium.onnx.json"
 fi
 
 # Model 2: Amy (Warm expressive voice)
 if [[ ! -f "$INSTALL_DIR/voices/en_US-amy-medium.onnx" ]]; then
     echo "Downloading en_US-amy-medium voice model..."
-    curl -L -s "$HF_VOICES_URL/amy/medium/en_US-amy-medium.onnx" -o "$INSTALL_DIR/voices/en_US-amy-medium.onnx"
-    curl -L -s "$HF_VOICES_URL/amy/medium/en_US-amy-medium.onnx.json" -o "$INSTALL_DIR/voices/en_US-amy-medium.onnx.json"
+    curl -L -s "$HF_BASE/v1.0.0/en/en_US/amy/medium/en_US-amy-medium.onnx" -o "$INSTALL_DIR/voices/en_US-amy-medium.onnx"
+    curl -L -s "$HF_BASE/v1.0.0/en/en_US/amy/medium/en_US-amy-medium.onnx.json" -o "$INSTALL_DIR/voices/en_US-amy-medium.onnx.json"
+fi
+
+# Model 3: Rohan (Native Indian Bilingual & Hinglish voice)
+if [[ ! -f "$INSTALL_DIR/voices/hi_IN-rohan-medium.onnx" ]]; then
+    echo "Downloading hi_IN-rohan-medium voice model (Indian English & Hinglish)..."
+    curl -L -s "$HF_BASE/main/hi/hi_IN/rohan/medium/hi_IN-rohan-medium.onnx" -o "$INSTALL_DIR/voices/hi_IN-rohan-medium.onnx"
+    curl -L -s "$HF_BASE/main/hi/hi_IN/rohan/medium/hi_IN-rohan-medium.onnx.json" -o "$INSTALL_DIR/voices/hi_IN-rohan-medium.onnx.json"
 fi
 echo -e "${GREEN}✓ Neural voice models ready.${NC}"
 
@@ -115,7 +122,7 @@ echo -e "\n${GREEN}${BOLD}======================================================
 echo -e "${GREEN}${BOLD}    Antigravity TTS Installed & Configured Successfully!  ${NC}"
 echo -e "${GREEN}${BOLD}==========================================================${NC}"
 echo -e "\n${BOLD}Quick Start Guide:${NC}"
-echo -e "  1. Open Antigravity IDE and highlight any code or text."
+echo -e "  1. Open Antigravity IDE and highlight any code or text (English or Hinglish)."
 echo -e "  2. Press ${YELLOW}${BOLD}Super + R${NC} to start speaking in natural human voice."
 echo -e "  3. Press ${YELLOW}${BOLD}Super + R${NC} again to ${YELLOW}pause${NC}."
 echo -e "  4. Press ${YELLOW}${BOLD}Super + R${NC} again to ${YELLOW}resume${NC} right from where you stopped."

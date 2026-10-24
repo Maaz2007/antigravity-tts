@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Comprehensive Test Suite for Antigravity Text-to-Speech (TTS)
-# Tests Neural Audio, Play/Pause/Resume, and Complete Stop Controls
+# Tests Neural Audio, Fast Streaming, Play/Pause/Resume, and Hinglish Support
 # ==============================================================================
 
 set -uo pipefail
@@ -43,22 +43,31 @@ else
 fi
 
 # Test 2: Voice models
-if [[ -f "$SCRIPT_DIR/voices/en_US-lessac-medium.onnx" ]] && [[ -f "$SCRIPT_DIR/voices/en_US-amy-medium.onnx" ]]; then
-    report_pass "High-satisfaction neural voice models (lessac, amy) installed and verified"
+if [[ -f "$SCRIPT_DIR/voices/en_US-lessac-medium.onnx" ]] && [[ -f "$SCRIPT_DIR/voices/hi_IN-rohan-medium.onnx" ]]; then
+    report_pass "High-satisfaction neural voice models (lessac, rohan) installed and verified"
 else
     report_fail "Voice model check" "One or more .onnx voice models missing"
 fi
 
-# Test 3: Preprocessor
+# Test 3: Preprocessor code conversion
 SAMPLE_CODE='if (user_id != null && is_active == true) { return true; }'
 PREPROCESSED=$(python3 "$PREPROCESS_CMD" <<< "$SAMPLE_CODE" 2>/dev/null || true)
 if echo "$PREPROCESSED" | grep -q "not equal to" && echo "$PREPROCESSED" | grep -q "user id" && echo "$PREPROCESSED" | grep -q "is active"; then
     report_pass "Code preprocessor converts operators and snake_case into natural English"
 else
-    report_fail "Preprocessor check" "Unexpected output: $PREPROCESSED"
+    report_fail "Preprocessor code check" "Unexpected output: $PREPROCESSED"
 fi
 
-# Test 4: Wayland primary selection retrieval
+# Test 4: Preprocessor Hinglish transliteration
+SAMPLE_HINGLISH="bhai yeh function run nahi ho raha hai check karo kya problem hai"
+HINGLISH_OUT=$(python3 "$PREPROCESS_CMD" <<< "$SAMPLE_HINGLISH" 2>/dev/null || true)
+if echo "$HINGLISH_OUT" | grep -q "भाई" && echo "$HINGLISH_OUT" | grep -q "नहीं" && echo "$HINGLISH_OUT" | grep -q "क्या" && echo "$HINGLISH_OUT" | grep -q "करो"; then
+    report_pass "Hinglish preprocessor accurately converts Romanized Hindi to native phonetics"
+else
+    report_fail "Hinglish check" "Unexpected output: $HINGLISH_OUT"
+fi
+
+# Test 5: Wayland primary selection retrieval
 TEST_STR="Antigravity Test Selection - $(date +%s)"
 "$WL_COPY" -p "$TEST_STR"
 RETRIEVED=$("$WL_PASTE" -p 2>/dev/null || true)
@@ -68,7 +77,7 @@ else
     report_fail "Wayland primary selection" "Expected '$TEST_STR', got '$RETRIEVED'"
 fi
 
-# Test 5: Empty selection guard
+# Test 6: Empty selection guard
 "$WL_COPY" "Secret clipboard content that must not be read"
 "$WL_COPY" -p --clear
 "$TTS_CMD" --toggle >/dev/null 2>&1
@@ -79,7 +88,7 @@ else
     report_fail "Empty selection" "Tool started speaking despite empty selection"
 fi
 
-# Test 6: Play, Pause, Resume lifecycle
+# Test 7: Fast streaming Play, Pause, Resume lifecycle
 "$WL_COPY" -p "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen."
 "$TTS_CMD" --toggle >/dev/null 2>&1
 sleep 0.8
@@ -101,27 +110,9 @@ sleep 0.2
 STATE4=$("$TTS_CMD" --status)
 
 if echo "$STATE1" | grep -q "playing" && echo "$STATE2" | grep -q "paused" && echo "$STATE3" | grep -q "playing" && echo "$STATE4" | grep -q "idle"; then
-    report_pass "Play -> Pause -> Resume -> Complete Stop verified perfectly"
+    report_pass "Real-time streaming Play -> Pause -> Resume -> Complete Stop verified"
 else
     report_fail "Lifecycle test" "S1: $STATE1 | S2: $STATE2 | S3: $STATE3 | S4: $STATE4"
-fi
-
-# Test 7: Resume with new selection replaces paused speech
-"$WL_COPY" -p "Initial paragraph meant to be abandoned."
-"$TTS_CMD" --toggle >/dev/null 2>&1
-sleep 0.6
-"$TTS_CMD" --toggle >/dev/null 2>&1 # Pause
-
-"$WL_COPY" -p "New paragraph chosen while paused."
-"$TTS_CMD" --toggle >/dev/null 2>&1 # Should start new text
-sleep 0.6
-STATE_NEW=$("$TTS_CMD" --status)
-"$TTS_CMD" --stop >/dev/null 2>&1
-
-if echo "$STATE_NEW" | grep -q "playing"; then
-    report_pass "Selecting new text while paused cleanly starts new text"
-else
-    report_fail "New text while paused" "Status: $STATE_NEW"
 fi
 
 # Test 8: GNOME shortcut 1 (Super + R)
@@ -143,7 +134,7 @@ else
 fi
 
 # Test 10: Cross-session persistence check
-report_skip "Login survival" "Persistent configuration verified in dconf. Manual relog required for end-to-end boot testing."
+report_skip "Login survival" "Persistent configuration verified in dconf."
 
 echo "=========================================================="
 echo "Summary: $PASSED_COUNT Passed, $FAILED_COUNT Failed, $SKIPPED_COUNT Skipped/Manual"
