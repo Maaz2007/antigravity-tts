@@ -1,0 +1,17 @@
+# Ignore architecture-dependent binary executables (installed automatically by install.sh)
+bin/
+
+# Ignore large neural voice models (downloaded on demand by install.sh)
+voices/
+
+# Runtime state and temporary audio files
+*.pid
+*.wav
+*.log
+*.tmp
+current_*
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
