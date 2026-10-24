@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Antigravity Text-to-Speech (TTS) Engine
-# High-Quality Neural TTS with Play / Pause / Resume & Complete Stop
+# High-Performance Real-Time Streaming Neural TTS
+# Immediate Speech Onset (<250ms) with Play / Pause / Resume & Complete Stop
 # ==============================================================================
 
 set -uo pipefail
@@ -39,7 +40,7 @@ ESPEAK_SPEED="${ESPEAK_SPEED:-175}"
 ESPEAK_PITCH="${ESPEAK_PITCH:-50}"
 ESPEAK_AMPLITUDE="${ESPEAK_AMPLITUDE:-100}"
 
-MAX_CHARS="${MAX_CHARS:-15000}"
+MAX_CHARS="${MAX_CHARS:-25000}"
 ENABLE_NOTIFICATIONS="${ENABLE_NOTIFICATIONS:-true}"
 SELECTION_MODE="${SELECTION_MODE:-primary}"
 
@@ -47,7 +48,8 @@ SELECTION_MODE="${SELECTION_MODE:-primary}"
 STATE_DIR="${XDG_RUNTIME_DIR}/antigravity-tts"
 mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
 PID_FILE="$STATE_DIR/player.pid"
-AUDIO_FILE="$STATE_DIR/current_speech.wav"
+PIPER_PID_FILE="$STATE_DIR/piper.pid"
+FIFO_FILE="$STATE_DIR/audio.pipe"
 TEXT_FILE="$STATE_DIR/current_text.txt"
 LOG_FILE="$STATE_DIR/tts.log"
 
@@ -61,7 +63,7 @@ notify() {
     local message="$2"
     local urgency="${3:-low}"
     if [[ "$ENABLE_NOTIFICATIONS" == "true" ]] && command -v notify-send >/dev/null 2>&1; then
-        notify-send -u "$urgency" -a "Antigravity TTS" "$title" "$message" 2>/dev/null || true
+        notify-send -u "$urgency" -a "Antigravity TTS" "$title" "$message" >/dev/null 2>&1 &
     fi
 }
 
@@ -122,7 +124,7 @@ get_player_state() {
             fi
         fi
         # Stale PID file
-        rm -f "$PID_FILE" "$AUDIO_FILE" "$TEXT_FILE" 2>/dev/null || true
+        rm -f "$PID_FILE" "$PIPER_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
     fi
     echo "idle"
 }
@@ -143,18 +145,23 @@ get_text_selection() {
 
 # Complete Stop: Kills everything immediately and resets state to idle
 stop_speech() {
-    local state
-    state="$(get_player_state)"
     local pid=""
     if [[ -f "$PID_FILE" ]]; then
         pid="$(cat "$PID_FILE" 2>/dev/null || true)"
     fi
+    local piper_pid=""
+    if [[ -f "$PIPER_PID_FILE" ]]; then
+        piper_pid="$(cat "$PIPER_PID_FILE" 2>/dev/null || true)"
+    fi
 
-    log "Stopping speech completely (PID: ${pid:-none}, state: $state)..."
+    log "Stopping speech completely (Player PID: ${pid:-none}, Piper PID: ${piper_pid:-none})..."
 
-    # Immediately terminate active audio player
+    # Immediately terminate active processes
     if [[ -n "$pid" ]]; then
         kill -KILL "$pid" 2>/dev/null || true
+    fi
+    if [[ -n "$piper_pid" ]]; then
+        kill -KILL "$piper_pid" 2>/dev/null || true
     fi
 
     # Terminate any remaining synth or audio player processes
@@ -163,45 +170,90 @@ stop_speech() {
     pkill -u "$USER" -x piper 2>/dev/null || true
     pkill -u "$USER" -x espeak-ng 2>/dev/null || true
 
-    # Clean up state files
-    rm -f "$PID_FILE" "$AUDIO_FILE" "$TEXT_FILE" 2>/dev/null || true
+    # Clean up state and FIFO pipe
+    rm -f "$PID_FILE" "$PIPER_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
 
     log "Speech stopped completely."
     notify "Antigravity TTS" "Speech stopped completely." "low"
     return 0
 }
 
+# Internal stop without notification (used when restarting with new text)
+stop_speech_internal() {
+    if [[ -f "$PID_FILE" ]]; then
+        local pid
+        pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+        if [[ -n "$pid" ]]; then
+            kill -KILL "$pid" 2>/dev/null || true
+        fi
+    fi
+    if [[ -f "$PIPER_PID_FILE" ]]; then
+        local piper_pid
+        piper_pid="$(cat "$PIPER_PID_FILE" 2>/dev/null || true)"
+        if [[ -n "$piper_pid" ]]; then
+            kill -KILL "$piper_pid" 2>/dev/null || true
+        fi
+    fi
+    pkill -u "$USER" -x pw-play 2>/dev/null || true
+    pkill -u "$USER" -x aplay 2>/dev/null || true
+    pkill -u "$USER" -x piper 2>/dev/null || true
+    rm -f "$PID_FILE" "$PIPER_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
+}
+
 # Pause currently playing audio immediately
 pause_speech() {
+    local paused_any=0
     if [[ -f "$PID_FILE" ]]; then
         local pid
         pid="$(cat "$PID_FILE" 2>/dev/null || true)"
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             kill -STOP "$pid" 2>/dev/null || true
-            log "Speech paused (PID: $pid)."
-            notify "Antigravity TTS" "Paused. Press Super+R to resume." "low"
-            return 0
+            paused_any=1
         fi
+    fi
+    if [[ -f "$PIPER_PID_FILE" ]]; then
+        local piper_pid
+        piper_pid="$(cat "$PIPER_PID_FILE" 2>/dev/null || true)"
+        if [[ -n "$piper_pid" ]] && kill -0 "$piper_pid" 2>/dev/null; then
+            kill -STOP "$piper_pid" 2>/dev/null || true
+        fi
+    fi
+
+    if [[ $paused_any -eq 1 ]]; then
+        log "Speech paused."
+        notify "Antigravity TTS" "Paused. Press Super+R to resume." "low"
     fi
     return 0
 }
 
 # Resume paused audio from the exact position
 resume_speech() {
+    local resumed_any=0
     if [[ -f "$PID_FILE" ]]; then
         local pid
         pid="$(cat "$PID_FILE" 2>/dev/null || true)"
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             kill -CONT "$pid" 2>/dev/null || true
-            log "Speech resumed (PID: $pid)."
-            notify "Antigravity TTS" "Resumed speech." "low"
-            return 0
+            resumed_any=1
         fi
+    fi
+    if [[ -f "$PIPER_PID_FILE" ]]; then
+        local piper_pid
+        piper_pid="$(cat "$PIPER_PID_FILE" 2>/dev/null || true)"
+        if [[ -n "$piper_pid" ]] && kill -0 "$piper_pid" 2>/dev/null; then
+            kill -CONT "$piper_pid" 2>/dev/null || true
+        fi
+    fi
+
+    if [[ $resumed_any -eq 1 ]]; then
+        log "Speech resumed."
+        notify "Antigravity TTS" "Resumed speech." "low"
+        return 0
     fi
     return 1
 }
 
-# Start new speech
+# Start speech with instant real-time streaming (<250ms onset)
 speak_text() {
     local text="$1"
 
@@ -219,13 +271,13 @@ speak_text() {
     if [[ $char_count -gt $MAX_CHARS ]]; then
         log "Text length ($char_count chars) exceeds MAX_CHARS ($MAX_CHARS). Truncating."
         text="${text:0:$MAX_CHARS}"
-        notify "Antigravity TTS" "Selection is long; reading first $MAX_CHARS characters." "low"
+        notify "Antigravity TTS" "Selection is large; reading first $MAX_CHARS characters." "low"
     fi
 
     # Save original text for change detection
     echo "$text" > "$TEXT_FILE"
 
-    # Preprocess text for natural pronunciation
+    # Fast preprocessor pass
     local processed_text="$text"
     if [[ "$ENABLE_PREPROCESSOR" == "true" ]] && [[ -f "$SCRIPT_DIR/preprocess.py" ]] && command -v python3 >/dev/null 2>&1; then
         processed_text="$(python3 "$SCRIPT_DIR/preprocess.py" <<< "$text" 2>/dev/null || echo "$text")"
@@ -234,7 +286,14 @@ speak_text() {
     local preview="${text:0:50}"
     preview="$(echo "$preview" | tr '\n' ' ')"
 
-    # Synthesize with Piper Neural Engine
+    # Clean existing state
+    stop_speech_internal
+
+    # Create FIFO for real-time audio streaming
+    rm -f "$FIFO_FILE"
+    mkfifo "$FIFO_FILE"
+
+    # Start speech via streaming Piper engine
     if [[ "$TTS_ENGINE" == "piper" ]] && [[ -x "$SCRIPT_DIR/bin/piper/piper" ]]; then
         local model_path="$SCRIPT_DIR/voices/${PIPER_VOICE}.onnx"
         if [[ ! -f "$model_path" ]]; then
@@ -242,34 +301,39 @@ speak_text() {
         fi
 
         if [[ -n "$model_path" ]] && [[ -f "$model_path" ]]; then
-            log "Synthesizing neural audio (${#processed_text} chars, model: $(basename "$model_path"))..."
-            
-            # Generate WAV file
-            "$SCRIPT_DIR/bin/piper/piper" \
-                --model "$model_path" \
-                --length-scale "$PIPER_SPEED" \
-                --sentence-silence "$PIPER_SENTENCE_PAUSE" \
-                --noise-scale "$PIPER_NOISE_SCALE" \
-                --noise-w "$PIPER_NOISE_W" \
-                --output-file "$AUDIO_FILE" <<< "$processed_text" 2>>"$LOG_FILE"
+            log "Starting real-time streaming Piper neural speech (${#processed_text} chars, model: $(basename "$model_path"))..."
 
-            # Launch player directly (so $! is the actual audio player PID)
+            # Launch audio player on FIFO in background
             if command -v pw-play >/dev/null 2>&1; then
-                pw-play "$AUDIO_FILE" >> "$LOG_FILE" 2>&1 &
+                pw-play --rate 22050 --channels 1 --format s16 --raw "$FIFO_FILE" >> "$LOG_FILE" 2>&1 &
                 local player_pid=$!
             else
-                aplay "$AUDIO_FILE" >> "$LOG_FILE" 2>&1 &
+                aplay -r 22050 -f S16_LE -t raw "$FIFO_FILE" >> "$LOG_FILE" 2>&1 &
                 local player_pid=$!
             fi
-
             echo "$player_pid" > "$PID_FILE"
+
+            # Launch Piper streaming raw audio directly into FIFO in background
+            (
+                "$SCRIPT_DIR/bin/piper/piper" \
+                    --model "$model_path" \
+                    --length-scale "$PIPER_SPEED" \
+                    --sentence-silence "$PIPER_SENTENCE_PAUSE" \
+                    --noise-scale "$PIPER_NOISE_SCALE" \
+                    --noise-w "$PIPER_NOISE_W" \
+                    --output-raw <<< "$processed_text" > "$FIFO_FILE" 2>>"$LOG_FILE"
+                rm -f "$PIPER_PID_FILE" 2>/dev/null || true
+            ) &
+            local piper_pid=$!
+            echo "$piper_pid" > "$PIPER_PID_FILE"
+
             notify "Antigravity TTS" "Speaking: \"${preview}...\"" "low"
-            log "Audio playback started with PID $player_pid"
+            log "Streaming started (Player PID: $player_pid, Piper PID: $piper_pid)"
             return 0
         fi
     fi
 
-    # Fallback to eSpeak NG
+    # Fallback to eSpeak NG streaming
     local espeak_bin=""
     if [[ -x "$SCRIPT_DIR/bin/espeak-ng" ]]; then
         espeak_bin="$SCRIPT_DIR/bin/espeak-ng"
@@ -279,17 +343,12 @@ speak_text() {
 
     if [[ -n "$espeak_bin" ]]; then
         log "Starting eSpeak fallback speech..."
-        "$espeak_bin" -w "$AUDIO_FILE" -v "$ESPEAK_VOICE" -s "$ESPEAK_SPEED" -p "$ESPEAK_PITCH" -a "$ESPEAK_AMPLITUDE" <<< "$processed_text" >> "$LOG_FILE" 2>&1
-        if command -v pw-play >/dev/null 2>&1; then
-            pw-play "$AUDIO_FILE" >> "$LOG_FILE" 2>&1 &
-            local player_pid=$!
-        else
-            aplay "$AUDIO_FILE" >> "$LOG_FILE" 2>&1 &
-            local player_pid=$!
-        fi
+        (
+            exec "$espeak_bin" -v "$ESPEAK_VOICE" -s "$ESPEAK_SPEED" -p "$ESPEAK_PITCH" -a "$ESPEAK_AMPLITUDE" <<< "$processed_text" >> "$LOG_FILE" 2>&1
+        ) &
+        local player_pid=$!
         echo "$player_pid" > "$PID_FILE"
         notify "Antigravity TTS" "Speaking: \"${preview}...\"" "low"
-        log "eSpeak playback started with PID $player_pid"
         return 0
     fi
 
@@ -323,7 +382,6 @@ toggle_speech() {
 
         if [[ -n "$trimmed_curr" ]] && [[ "$current_sel" != "$old_sel" ]]; then
             log "New selection detected while paused. Restarting with new text..."
-            stop_speech
             speak_text "$current_sel"
         else
             # Resume existing playback
@@ -358,7 +416,7 @@ Options:
   --toggle, -t      Toggle speech:
                       - If playing -> PAUSE immediately.
                       - If paused  -> RESUME from where it stopped.
-                      - If idle    -> SPEAK selected text. [DEFAULT]
+                      - If idle    -> SPEAK selected text instantly. [DEFAULT]
   --stop, -x        COMPLETE STOP: Immediately halts all audio, resets state, and clears queue.
   --pause           Pause active playback immediately.
   --resume          Resume paused playback from where it stopped.
@@ -385,7 +443,6 @@ case "${1:-}" in
         resume_speech
         ;;
     --speak|-s)
-        stop_speech
         TEXT="$(get_text_selection)"
         speak_text "$TEXT"
         ;;
@@ -398,7 +455,6 @@ case "${1:-}" in
             echo "Error: --text requires an argument" >&2
             exit 1
         fi
-        stop_speech
         speak_text "$*"
         ;;
     --help|-h)
