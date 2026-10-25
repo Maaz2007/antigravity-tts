@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Antigravity Text-to-Speech (TTS) Engine
-# High-Performance Real-Time Streaming Neural TTS
-# Immediate Speech Onset (<250ms) with Play / Pause / Resume & Complete Stop
+# Ultra-Realistic Human Speech for Hindi, Hinglish, and English
+# Studio-Grade Edge Neural Voice + Offline Piper Neural Engine Fallback
 # ==============================================================================
 
 set -uo pipefail
@@ -17,8 +17,8 @@ export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 export DISPLAY="${DISPLAY:-:0}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 
-# Prioritize project bundled binaries
-export PATH="$SCRIPT_DIR/bin:$SCRIPT_DIR/bin/piper:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+# Prioritize project bundled virtualenv and binaries
+export PATH="$SCRIPT_DIR/venv/bin:$SCRIPT_DIR/bin:$SCRIPT_DIR/bin/piper:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 # Load configuration with fallback defaults
 CONFIG_FILE="$SCRIPT_DIR/config.env"
@@ -27,13 +27,18 @@ if [[ -f "$CONFIG_FILE" ]]; then
     source "$CONFIG_FILE"
 fi
 
-TTS_ENGINE="${TTS_ENGINE:-piper}"
-PIPER_VOICE="${PIPER_VOICE:-en_US-lessac-medium}"
+TTS_ENGINE="${TTS_ENGINE:-edge}"
+EDGE_VOICE="${EDGE_VOICE:-hi-IN-MadhurNeural}"
+EDGE_RATE="${EDGE_RATE:-+0%}"
+
+PIPER_VOICE="${PIPER_VOICE:-hi_IN-pratham-medium}"
 PIPER_SPEED="${PIPER_SPEED:-0.95}"
 PIPER_SENTENCE_PAUSE="${PIPER_SENTENCE_PAUSE:-0.2}"
 PIPER_NOISE_SCALE="${PIPER_NOISE_SCALE:-0.667}"
 PIPER_NOISE_W="${PIPER_NOISE_W:-0.8}"
+
 ENABLE_PREPROCESSOR="${ENABLE_PREPROCESSOR:-true}"
+FALLBACK_TO_PIPER="${FALLBACK_TO_PIPER:-true}"
 
 ESPEAK_VOICE="${ESPEAK_VOICE:-en-us}"
 ESPEAK_SPEED="${ESPEAK_SPEED:-175}"
@@ -48,7 +53,7 @@ SELECTION_MODE="${SELECTION_MODE:-primary}"
 STATE_DIR="${XDG_RUNTIME_DIR}/antigravity-tts"
 mkdir -p "$STATE_DIR" && chmod 700 "$STATE_DIR"
 PID_FILE="$STATE_DIR/player.pid"
-PIPER_PID_FILE="$STATE_DIR/piper.pid"
+SYNTH_PID_FILE="$STATE_DIR/synth.pid"
 FIFO_FILE="$STATE_DIR/audio.pipe"
 TEXT_FILE="$STATE_DIR/current_text.txt"
 LOG_FILE="$STATE_DIR/tts.log"
@@ -124,7 +129,7 @@ get_player_state() {
             fi
         fi
         # Stale PID file
-        rm -f "$PID_FILE" "$PIPER_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
+        rm -f "$PID_FILE" "$SYNTH_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
     fi
     echo "idle"
 }
@@ -143,35 +148,36 @@ get_text_selection() {
     echo "$raw_text"
 }
 
-# Complete Stop: Kills everything immediately and resets state to idle
+# Complete Stop: Halts all audio immediately and resets state to idle
 stop_speech() {
     local pid=""
     if [[ -f "$PID_FILE" ]]; then
         pid="$(cat "$PID_FILE" 2>/dev/null || true)"
     fi
-    local piper_pid=""
-    if [[ -f "$PIPER_PID_FILE" ]]; then
-        piper_pid="$(cat "$PIPER_PID_FILE" 2>/dev/null || true)"
+    local synth_pid=""
+    if [[ -f "$SYNTH_PID_FILE" ]]; then
+        synth_pid="$(cat "$SYNTH_PID_FILE" 2>/dev/null || true)"
     fi
 
-    log "Stopping speech completely (Player PID: ${pid:-none}, Piper PID: ${piper_pid:-none})..."
+    log "Stopping speech completely (Player PID: ${pid:-none}, Synth PID: ${synth_pid:-none})..."
 
     # Immediately terminate active processes
     if [[ -n "$pid" ]]; then
         kill -KILL "$pid" 2>/dev/null || true
     fi
-    if [[ -n "$piper_pid" ]]; then
-        kill -KILL "$piper_pid" 2>/dev/null || true
+    if [[ -n "$synth_pid" ]]; then
+        kill -KILL "$synth_pid" 2>/dev/null || true
     fi
 
-    # Terminate any remaining synth or audio player processes
+    # Terminate any remaining player or synth processes
     pkill -u "$USER" -x pw-play 2>/dev/null || true
     pkill -u "$USER" -x aplay 2>/dev/null || true
     pkill -u "$USER" -x piper 2>/dev/null || true
+    pkill -u "$USER" -f "edge-tts" 2>/dev/null || true
     pkill -u "$USER" -x espeak-ng 2>/dev/null || true
 
     # Clean up state and FIFO pipe
-    rm -f "$PID_FILE" "$PIPER_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
+    rm -f "$PID_FILE" "$SYNTH_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
 
     log "Speech stopped completely."
     notify "Antigravity TTS" "Speech stopped completely." "low"
@@ -187,17 +193,18 @@ stop_speech_internal() {
             kill -KILL "$pid" 2>/dev/null || true
         fi
     fi
-    if [[ -f "$PIPER_PID_FILE" ]]; then
-        local piper_pid
-        piper_pid="$(cat "$PIPER_PID_FILE" 2>/dev/null || true)"
-        if [[ -n "$piper_pid" ]]; then
-            kill -KILL "$piper_pid" 2>/dev/null || true
+    if [[ -f "$SYNTH_PID_FILE" ]]; then
+        local synth_pid
+        synth_pid="$(cat "$SYNTH_PID_FILE" 2>/dev/null || true)"
+        if [[ -n "$synth_pid" ]]; then
+            kill -KILL "$synth_pid" 2>/dev/null || true
         fi
     fi
     pkill -u "$USER" -x pw-play 2>/dev/null || true
     pkill -u "$USER" -x aplay 2>/dev/null || true
     pkill -u "$USER" -x piper 2>/dev/null || true
-    rm -f "$PID_FILE" "$PIPER_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
+    pkill -u "$USER" -f "edge-tts" 2>/dev/null || true
+    rm -f "$PID_FILE" "$SYNTH_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
 }
 
 # Pause currently playing audio immediately
@@ -211,11 +218,11 @@ pause_speech() {
             paused_any=1
         fi
     fi
-    if [[ -f "$PIPER_PID_FILE" ]]; then
-        local piper_pid
-        piper_pid="$(cat "$PIPER_PID_FILE" 2>/dev/null || true)"
-        if [[ -n "$piper_pid" ]] && kill -0 "$piper_pid" 2>/dev/null; then
-            kill -STOP "$piper_pid" 2>/dev/null || true
+    if [[ -f "$SYNTH_PID_FILE" ]]; then
+        local synth_pid
+        synth_pid="$(cat "$SYNTH_PID_FILE" 2>/dev/null || true)"
+        if [[ -n "$synth_pid" ]] && kill -0 "$synth_pid" 2>/dev/null; then
+            kill -STOP "$synth_pid" 2>/dev/null || true
         fi
     fi
 
@@ -237,11 +244,11 @@ resume_speech() {
             resumed_any=1
         fi
     fi
-    if [[ -f "$PIPER_PID_FILE" ]]; then
-        local piper_pid
-        piper_pid="$(cat "$PIPER_PID_FILE" 2>/dev/null || true)"
-        if [[ -n "$piper_pid" ]] && kill -0 "$piper_pid" 2>/dev/null; then
-            kill -CONT "$piper_pid" 2>/dev/null || true
+    if [[ -f "$SYNTH_PID_FILE" ]]; then
+        local synth_pid
+        synth_pid="$(cat "$SYNTH_PID_FILE" 2>/dev/null || true)"
+        if [[ -n "$synth_pid" ]] && kill -0 "$synth_pid" 2>/dev/null; then
+            kill -CONT "$synth_pid" 2>/dev/null || true
         fi
     fi
 
@@ -253,7 +260,51 @@ resume_speech() {
     return 1
 }
 
-# Start speech with instant real-time streaming (<250ms onset)
+find_edge_tts() {
+    if [[ -x "$SCRIPT_DIR/venv/bin/edge-tts" ]]; then
+        echo "$SCRIPT_DIR/venv/bin/edge-tts"
+    elif command -v edge-tts >/dev/null 2>&1; then
+        command -v edge-tts
+    elif [[ -x "$HOME/.local/bin/uvx" ]]; then
+        echo "$HOME/.local/bin/uvx edge-tts"
+    else
+        echo ""
+    fi
+}
+
+is_online_for_edge() {
+    python3 -c "import socket; socket.create_connection(('speech.platform.bing.com', 443), timeout=0.8)" 2>/dev/null
+}
+
+# Select best Piper voice based on language content
+select_piper_voice() {
+    local text="$1"
+    # Check if text contains Devanagari characters
+    local has_hindi=0
+    if python3 -c "import sys, re; sys.exit(0 if re.search(r'[\u0900-\u097F]', sys.argv[1]) else 1)" "$text" 2>/dev/null; then
+        has_hindi=1
+    fi
+
+    if [[ $has_hindi -eq 1 ]]; then
+        if [[ -f "$SCRIPT_DIR/voices/hi_IN-pratham-medium.onnx" ]]; then
+            echo "$SCRIPT_DIR/voices/hi_IN-pratham-medium.onnx"
+            return 0
+        elif [[ -f "$SCRIPT_DIR/voices/hi_IN-rohan-medium.onnx" ]]; then
+            echo "$SCRIPT_DIR/voices/hi_IN-rohan-medium.onnx"
+            return 0
+        fi
+    fi
+
+    # Fall back to configured Piper voice
+    local configured="$SCRIPT_DIR/voices/${PIPER_VOICE}.onnx"
+    if [[ -f "$configured" ]]; then
+        echo "$configured"
+    else
+        find "$SCRIPT_DIR/voices" -name "*.onnx" | head -n 1
+    fi
+}
+
+# Start speech with human-like voice
 speak_text() {
     local text="$1"
 
@@ -277,7 +328,7 @@ speak_text() {
     # Save original text for change detection
     echo "$text" > "$TEXT_FILE"
 
-    # Fast preprocessor pass
+    # Fast preprocessor pass for Hinglish transliteration and code symbol cleanup
     local processed_text="$text"
     if [[ "$ENABLE_PREPROCESSOR" == "true" ]] && [[ -f "$SCRIPT_DIR/preprocess.py" ]] && command -v python3 >/dev/null 2>&1; then
         processed_text="$(python3 "$SCRIPT_DIR/preprocess.py" <<< "$text" 2>/dev/null || echo "$text")"
@@ -289,21 +340,47 @@ speak_text() {
     # Clean existing state
     stop_speech_internal
 
-    # Create FIFO for real-time audio streaming
+    # Create FIFO for audio streaming
     rm -f "$FIFO_FILE"
     mkfifo "$FIFO_FILE"
 
-    # Start speech via streaming Piper engine
-    if [[ "$TTS_ENGINE" == "piper" ]] && [[ -x "$SCRIPT_DIR/bin/piper/piper" ]]; then
-        local model_path="$SCRIPT_DIR/voices/${PIPER_VOICE}.onnx"
-        if [[ ! -f "$model_path" ]]; then
-            model_path="$(find "$SCRIPT_DIR/voices" -name "*.onnx" | head -n 1)"
+    # Method 1: Edge-TTS Engine (Ultra-Human Studio Neural Speech)
+    local edge_cmd
+    edge_cmd="$(find_edge_tts)"
+    if [[ "$TTS_ENGINE" == "edge" ]] && [[ -n "$edge_cmd" ]] && is_online_for_edge; then
+        log "Starting Edge-TTS neural speech (${#processed_text} chars, voice: $EDGE_VOICE)..."
+
+        # Launch audio player on FIFO
+        if command -v pw-play >/dev/null 2>&1; then
+            pw-play "$FIFO_FILE" >> "$LOG_FILE" 2>&1 &
+            local player_pid=$!
+        else
+            aplay "$FIFO_FILE" >> "$LOG_FILE" 2>&1 &
+            local player_pid=$!
         fi
+        echo "$player_pid" > "$PID_FILE"
+
+        # Launch edge-tts writing to FIFO in background
+        (
+            $edge_cmd --voice "$EDGE_VOICE" --rate "$EDGE_RATE" --text "$processed_text" --write-media "$FIFO_FILE" >> "$LOG_FILE" 2>&1
+            rm -f "$SYNTH_PID_FILE" 2>/dev/null || true
+        ) &
+        local synth_pid=$!
+        echo "$synth_pid" > "$SYNTH_PID_FILE"
+
+        notify "Antigravity TTS" "Speaking: \"${preview}...\"" "low"
+        log "Edge-TTS streaming started (Player PID: $player_pid, Synth PID: $synth_pid)"
+        return 0
+    fi
+
+    # Method 2: Piper Neural Engine (100% Local Offline Fallback)
+    if [[ -x "$SCRIPT_DIR/bin/piper/piper" ]]; then
+        local model_path
+        model_path="$(select_piper_voice "$processed_text")"
 
         if [[ -n "$model_path" ]] && [[ -f "$model_path" ]]; then
-            log "Starting real-time streaming Piper neural speech (${#processed_text} chars, model: $(basename "$model_path"))..."
+            log "Starting Piper neural speech (${#processed_text} chars, model: $(basename "$model_path"))..."
 
-            # Launch audio player on FIFO in background
             if command -v pw-play >/dev/null 2>&1; then
                 pw-play --rate 22050 --channels 1 --format s16 --raw "$FIFO_FILE" >> "$LOG_FILE" 2>&1 &
                 local player_pid=$!
@@ -313,7 +390,6 @@ speak_text() {
             fi
             echo "$player_pid" > "$PID_FILE"
 
-            # Launch Piper streaming raw audio directly into FIFO in background
             (
                 "$SCRIPT_DIR/bin/piper/piper" \
                     --model "$model_path" \
@@ -322,18 +398,18 @@ speak_text() {
                     --noise-scale "$PIPER_NOISE_SCALE" \
                     --noise-w "$PIPER_NOISE_W" \
                     --output-raw <<< "$processed_text" > "$FIFO_FILE" 2>>"$LOG_FILE"
-                rm -f "$PIPER_PID_FILE" 2>/dev/null || true
+                rm -f "$SYNTH_PID_FILE" 2>/dev/null || true
             ) &
             local piper_pid=$!
-            echo "$piper_pid" > "$PIPER_PID_FILE"
+            echo "$piper_pid" > "$SYNTH_PID_FILE"
 
             notify "Antigravity TTS" "Speaking: \"${preview}...\"" "low"
-            log "Streaming started (Player PID: $player_pid, Piper PID: $piper_pid)"
+            log "Piper streaming started (Player PID: $player_pid, Piper PID: $piper_pid)"
             return 0
         fi
     fi
 
-    # Fallback to eSpeak NG streaming
+    # Method 3: Fallback to eSpeak NG
     local espeak_bin=""
     if [[ -x "$SCRIPT_DIR/bin/espeak-ng" ]]; then
         espeak_bin="$SCRIPT_DIR/bin/espeak-ng"
@@ -369,7 +445,6 @@ toggle_speech() {
         pause_speech
         return 0
     elif [[ "$state" == "paused" ]]; then
-        # Check if user highlighted a NEW different text
         local current_sel
         current_sel="$(get_text_selection)"
         local old_sel=""
@@ -384,12 +459,10 @@ toggle_speech() {
             log "New selection detected while paused. Restarting with new text..."
             speak_text "$current_sel"
         else
-            # Resume existing playback
             resume_speech
         fi
         return 0
     else
-        # Idle: start fresh speech
         local text
         text="$(get_text_selection)"
         speak_text "$text"
@@ -404,7 +477,11 @@ show_status() {
     if [[ -f "$PID_FILE" ]]; then
         pid="$(cat "$PID_FILE" 2>/dev/null || true)"
     fi
-    echo "Status: $state (PID: ${pid:-none}, Engine: $TTS_ENGINE, Voice: $PIPER_VOICE)"
+    local active_voice="$EDGE_VOICE"
+    if [[ "$TTS_ENGINE" == "piper" ]]; then
+        active_voice="$PIPER_VOICE"
+    fi
+    echo "Status: $state (PID: ${pid:-none}, Engine: $TTS_ENGINE, Voice: $active_voice)"
 }
 
 show_help() {

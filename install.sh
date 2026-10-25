@@ -27,13 +27,13 @@ if [[ "$ARCH" != "x86_64" ]] && [[ "$ARCH" != "aarch64" ]]; then
 fi
 
 INSTALL_DIR="${TARGET_DIR:-$HOME/antigravity-tts}"
-echo -e "${BLUE}[1/6] Preparing installation directory at: ${BOLD}$INSTALL_DIR${NC}"
+echo -e "${BLUE}[1/7] Preparing installation directory at: ${BOLD}$INSTALL_DIR${NC}"
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/voices"
 
 # If running from a cloned git repo, copy template files over if different
 SCRIPT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "$SCRIPT_SRC" != "$INSTALL_DIR" ]]; then
-    echo -e "${BLUE}[2/6] Copying engine scripts and configurations...${NC}"
+    echo -e "${BLUE}[2/7] Copying engine scripts and configurations...${NC}"
     cp -u "$SCRIPT_SRC"/antigravity-tts.sh "$INSTALL_DIR/" 2>/dev/null || cp "$SCRIPT_SRC"/antigravity-tts.sh "$INSTALL_DIR/"
     cp -u "$SCRIPT_SRC"/preprocess.py "$INSTALL_DIR/" 2>/dev/null || cp "$SCRIPT_SRC"/preprocess.py "$INSTALL_DIR/"
     cp -u "$SCRIPT_SRC"/config.env "$INSTALL_DIR/" 2>/dev/null || cp "$SCRIPT_SRC"/config.env "$INSTALL_DIR/"
@@ -44,8 +44,8 @@ if [[ "$SCRIPT_SRC" != "$INSTALL_DIR" ]]; then
     cp -u "$SCRIPT_SRC"/README.md "$INSTALL_DIR/" 2>/dev/null || cp "$SCRIPT_SRC"/README.md "$INSTALL_DIR/"
 fi
 
-# 2. Setup Wayland Clipboard Utilities (wl-paste, wl-copy)
-echo -e "${BLUE}[3/6] Setting up clipboard utilities (wl-clipboard)...${NC}"
+# 2. Setup Wayland Clipboard Utilities (wl-clipboard)
+echo -e "${BLUE}[3/7] Setting up clipboard utilities (wl-clipboard)...${NC}"
 if ! command -v wl-paste >/dev/null 2>&1 && [[ ! -x "$INSTALL_DIR/bin/wl-paste" ]]; then
     echo "Downloading wl-clipboard package..."
     TMP_WL="/tmp/wl_pkg_$$"
@@ -62,8 +62,24 @@ if ! command -v wl-paste >/dev/null 2>&1 && [[ ! -x "$INSTALL_DIR/bin/wl-paste" 
     rm -rf "$TMP_WL"
 fi
 
-# 3. Setup Piper Neural TTS Engine
-echo -e "${BLUE}[4/6] Setting up Piper Neural TTS engine...${NC}"
+# 3. Setup Edge-TTS (Studio-grade human speech)
+echo -e "${BLUE}[4/7] Setting up Edge-TTS engine (Ultra-Human Neural Speech)...${NC}"
+if [[ ! -x "$INSTALL_DIR/venv/bin/edge-tts" ]]; then
+    if command -v uv >/dev/null 2>&1; then
+        uv venv "$INSTALL_DIR/venv" --python python3 >/dev/null 2>&1 || true
+        uv pip install --python "$INSTALL_DIR/venv/bin/python" edge-tts >/dev/null 2>&1 || true
+    elif [[ -x "$HOME/.local/bin/uv" ]]; then
+        "$HOME/.local/bin/uv" venv "$INSTALL_DIR/venv" --python python3 >/dev/null 2>&1 || true
+        "$HOME/.local/bin/uv" pip install --python "$INSTALL_DIR/venv/bin/python" edge-tts >/dev/null 2>&1 || true
+    elif command -v pip >/dev/null 2>&1 || command -v pip3 >/dev/null 2>&1; then
+        python3 -m venv "$INSTALL_DIR/venv" >/dev/null 2>&1 || true
+        "$INSTALL_DIR/venv/bin/pip" install edge-tts >/dev/null 2>&1 || true
+    fi
+fi
+echo -e "${GREEN}✓ Edge-TTS human voice engine is ready.${NC}"
+
+# 4. Setup Piper Neural TTS Engine (Offline Backup)
+echo -e "${BLUE}[5/7] Setting up Piper Neural TTS engine (Offline Fallback)...${NC}"
 if [[ ! -x "$INSTALL_DIR/bin/piper/piper" ]]; then
     PIPER_URL="https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_${ARCH}.tar.gz"
     echo "Downloading standalone Piper neural engine from $PIPER_URL..."
@@ -77,8 +93,8 @@ if [[ ! -x "$INSTALL_DIR/bin/piper/piper" ]]; then
 fi
 echo -e "${GREEN}✓ Piper neural engine is ready.${NC}"
 
-# 4. Download Natural Neural Voice Models
-echo -e "${BLUE}[5/6] Verifying neural voice models...${NC}"
+# 5. Download Neural Voice Models
+echo -e "${BLUE}[6/7] Verifying neural voice models...${NC}"
 HF_BASE="https://huggingface.co/rhasspy/piper-voices/resolve"
 
 # Model 1: Lessac (Default studio-quality American voice)
@@ -88,23 +104,16 @@ if [[ ! -f "$INSTALL_DIR/voices/en_US-lessac-medium.onnx" ]]; then
     curl -L -s "$HF_BASE/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json" -o "$INSTALL_DIR/voices/en_US-lessac-medium.onnx.json"
 fi
 
-# Model 2: Amy (Warm expressive voice)
-if [[ ! -f "$INSTALL_DIR/voices/en_US-amy-medium.onnx" ]]; then
-    echo "Downloading en_US-amy-medium voice model..."
-    curl -L -s "$HF_BASE/v1.0.0/en/en_US/amy/medium/en_US-amy-medium.onnx" -o "$INSTALL_DIR/voices/en_US-amy-medium.onnx"
-    curl -L -s "$HF_BASE/v1.0.0/en/en_US/amy/medium/en_US-amy-medium.onnx.json" -o "$INSTALL_DIR/voices/en_US-amy-medium.onnx.json"
+# Model 2: Pratham (Native Indian Hindi voice)
+if [[ ! -f "$INSTALL_DIR/voices/hi_IN-pratham-medium.onnx" ]]; then
+    echo "Downloading hi_IN-pratham-medium voice model..."
+    curl -L -s "$HF_BASE/main/hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx" -o "$INSTALL_DIR/voices/hi_IN-pratham-medium.onnx"
+    curl -L -s "$HF_BASE/main/hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx.json" -o "$INSTALL_DIR/voices/hi_IN-pratham-medium.onnx.json"
 fi
+echo -e "${GREEN}✓ Voice models ready.${NC}"
 
-# Model 3: Rohan (Native Indian Bilingual & Hinglish voice)
-if [[ ! -f "$INSTALL_DIR/voices/hi_IN-rohan-medium.onnx" ]]; then
-    echo "Downloading hi_IN-rohan-medium voice model (Indian English & Hinglish)..."
-    curl -L -s "$HF_BASE/main/hi/hi_IN/rohan/medium/hi_IN-rohan-medium.onnx" -o "$INSTALL_DIR/voices/hi_IN-rohan-medium.onnx"
-    curl -L -s "$HF_BASE/main/hi/hi_IN/rohan/medium/hi_IN-rohan-medium.onnx.json" -o "$INSTALL_DIR/voices/hi_IN-rohan-medium.onnx.json"
-fi
-echo -e "${GREEN}✓ Neural voice models ready.${NC}"
-
-# 5. Set permissions and configure shortcuts
-echo -e "${BLUE}[6/6] Configuring executable permissions and desktop shortcuts...${NC}"
+# 6. Set permissions and configure shortcuts
+echo -e "${BLUE}[7/7] Configuring executable permissions and desktop shortcuts...${NC}"
 chmod +x "$INSTALL_DIR"/*.sh "$INSTALL_DIR/preprocess.py" 2>/dev/null || true
 
 # Register GNOME shortcuts

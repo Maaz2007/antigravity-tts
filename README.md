@@ -1,8 +1,8 @@
 # Antigravity Text-to-Speech (TTS) for Ubuntu
 
-A fast, studio-quality, 100% offline Neural Text-to-Speech (TTS) utility tailored for Google Antigravity IDE and GNOME on Ubuntu (Wayland & X11).
+A fast, studio-quality, 100% human-grade Text-to-Speech (TTS) utility tailored for Google Antigravity IDE and GNOME on Ubuntu (Wayland & X11).
 
-Powered by the **Piper Neural VITS Synthesis Engine**, **PipeWire Real-Time Streaming**, and **Bilingual Hinglish Preprocessing**.
+Equipped with **Ultra-Realistic Studio Neural Voices** (Edge Neural Engine) and **100% Offline Local Neural Backup** (Piper VITS), paired with **PipeWire Real-Time Streaming** and an **Intelligent Bilingual Hinglish Preprocessor**.
 
 ---
 
@@ -16,11 +16,8 @@ git clone https://github.com/Maaz2007/antigravity-tts.git && cd antigravity-tts 
 
 **That's it!** The installer will:
 1. Detect your system architecture (`x86_64` or `arm64`).
-2. Download the lightweight standalone Piper neural speech engine.
-3. Download the natural voice models:
-   - `lessac` (Studio US voice)
-   - `amy` (Warm conversational voice)
-   - `rohan` (`hi_IN-rohan-medium`: Native Indian Bilingual & Hinglish voice)
+2. Set up the ultra-human Edge-TTS studio voice environment.
+3. Download the standalone Piper offline neural engine and voice models (`hi_IN-pratham-medium`, `en_US-lessac-medium`).
 4. Automatically register your GNOME desktop shortcuts:
    - **`Super + R`**: Play / Pause / Resume
    - **`Super + Shift + R`**: Complete Stop
@@ -28,19 +25,21 @@ git clone https://github.com/Maaz2007/antigravity-tts.git && cd antigravity-tts 
 
 ---
 
-## 🇮🇳 Native Hinglish & Code Pronunciation Support
+## 🎙️ Natural Human Hindi & Hinglish Speech
 
-Reading Hinglish (Hindi typed in English letters like *"bhai yeh function run nahi ho raha hai"*) typically causes English speech engines to mispronounce words.
+Reading Hindi or Hinglish (Hindi typed in English letters like *"bhai ye function kaam nhi kr rha hai dekhna padega"*) often sounds awkward or robotic on ordinary synthesizers.
 
-Our preprocessor (`preprocess.py`) automatically fixes this:
-- **Automatic Phonetic Transliteration**:
-  - Words like `bhai`, `kya`, `nahi`, `karo`, `yeh`, `achha`, `theek`, `hota`, `raha` are converted to native phonetic representations.
-  - English acoustic models speak them with native Hindi phonology instead of awkward English phonetic guesses.
-- **Bilingual Hybrid Intelligence**:
-  - Technical English terms (`function`, `database`, `user_id`, `return`, `console`, `error`) remain in clean English.
-  - Operators (`!=`, `==`, `>=`, `<=`, `&&`, `||`, `=>`) are translated into natural phrases (*"not equal to"*, *"equals"*, *"arrow"*).
-- **Dedicated Indian Bilingual Model**:
-  - Includes **`hi_IN-rohan-medium`** for authentic Indian English and Hinglish cadence.
+Antigravity TTS provides **flawless, human-grade pronunciation**:
+
+1. **Ultra-Realistic Studio Neural Voices**:
+   - **`hi-IN-MadhurNeural`** (Default): Male voice with warm, conversational human tone, natural pitch variations, and authentic Hindi diction.
+   - **`hi-IN-SwaraNeural`**: Female voice with expressive, crystal-clear intonation.
+2. **Comprehensive Hinglish Transliteration (`preprocess.py`)**:
+   - Converts colloquial chat forms (`nhi`, `rha`, `kr`, `kro`, `padega`, `bhot`, `samjh`, `btao`, `thk`, `acha`) to native Devanagari phonetics.
+   - Seamlessly preserves English technical keywords (`function`, `return`, `class`, `import`, `problem`, `user`, `calculate`).
+   - Translates programming symbols (`!=`, `==`, `>=`, `<=`, `&&`, `||`, `=>`) into natural spoken words (*"not equal to"*, *"equals"*, *"arrow"*).
+3. **100% Offline Neural Fallback**:
+   - If internet is unavailable, it automatically switches to local **Piper Neural TTS** with `hi_IN-pratham-medium` for zero-downtime offline reading.
 
 ---
 
@@ -48,7 +47,7 @@ Our preprocessor (`preprocess.py`) automatically fixes this:
 
 | Shortcut | Action | Behavior |
 |---|---|---|
-| **`Super + R`** | **Play / Pause / Resume** | - **Instant Start (<250ms)**: Real-time asynchronous streaming begins speaking immediately.<br>- **Second Press**: **Pauses immediately** at the exact millisecond.<br>- **Third Press**: **Resumes playback** right from where you paused.<br>*(If you select different code while paused, it starts reading the new code from the beginning).* |
+| **`Super + R`** | **Play / Pause / Resume** | - **Instant Start**: Begins speaking highlighted text immediately.<br>- **Second Press**: **Pauses immediately** at the exact millisecond.<br>- **Third Press**: **Resumes playback** right from where you paused.<br>*(If you select different text while paused, it starts reading the new text from the beginning).* |
 | **`Super + Shift + R`** | **Complete Stop & Reset** | - **Instant Silence**: Immediately cuts all audio output.<br>- Kills any active speech processes.<br>- Clears queue and resets player state to idle. |
 
 ---
@@ -56,8 +55,8 @@ Our preprocessor (`preprocess.py`) automatically fixes this:
 ## 🛠️ Usage Guide
 
 ### In Google Antigravity IDE
-1. **Highlight** any English, Code, or Hinglish text in Antigravity.
-2. **Press `Super + R`** to hear it spoken aloud.
+1. **Highlight** any English, Code, Hindi, or Hinglish text in Antigravity.
+2. **Press `Super + R`** to hear it spoken aloud in human voice.
 3. **Press `Super + R`** again to **pause**.
 4. **Press `Super + R`** again to **resume**.
 5. **Press `Super + Shift + R`** at any time to **completely stop** and reset.
@@ -66,23 +65,23 @@ Our preprocessor (`preprocess.py`) automatically fixes this:
 
 ## ⚙️ Voice Customization
 
-Edit `/home/maaz/antigravity-tts/config.env` to change your voice preferences:
+Edit `/home/maaz/antigravity-tts/config.env` to configure your preferred voice:
 
 ```bash
-# Voice Model:
-# "en_US-lessac-medium"  - Articulate, crisp, studio clarity (Default)
-# "hi_IN-rohan-medium"   - Native Indian Bilingual (Best for Hinglish & Indian English)
-# "en_US-amy-medium"     - Warm, conversational tone
-PIPER_VOICE="en_US-lessac-medium"
+# Engine: "edge" (Studio Human Neural) or "piper" (100% Local Offline)
+TTS_ENGINE="edge"
 
-# Speech speed scale:
-# 1.0  = Normal conversational pace
-# 0.95 = Snappy, slightly faster (recommended)
-# 1.10 = Slower, deliberate pacing
-PIPER_SPEED="0.95"
+# Studio Neural Voices:
+# - "hi-IN-MadhurNeural" : Male Hindi & Hinglish - natural, warm human tone (Default)
+# - "hi-IN-SwaraNeural"  : Female Hindi & Hinglish - expressive, clear human tone
+# - "en-IN-PrabhatNeural": Male Indian English & Hinglish
+# - "en-US-GuyNeural"    : Male American English
+EDGE_VOICE="hi-IN-MadhurNeural"
 
-# Smart code and Hinglish pronunciation preprocessor
-ENABLE_PREPROCESSOR=true
+# Offline Fallback Voice (Piper Engine):
+# - "hi_IN-pratham-medium" : Clean Indian Hindi voice (Default offline)
+# - "en_US-lessac-medium"  : US Studio clarity
+PIPER_VOICE="hi_IN-pratham-medium"
 ```
 *Changes take effect immediately on your next shortcut press—no reload needed!*
 
