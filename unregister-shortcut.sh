@@ -8,6 +8,9 @@ set -euo pipefail
 PATH_PLAY="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/antigravity-tts/"
 SCHEMA_PLAY="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATH_PLAY"
 
+PATH_SPEED="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/antigravity-tts-speed/"
+SCHEMA_SPEED="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATH_SPEED"
+
 PATH_STOP="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/antigravity-tts-stop/"
 SCHEMA_STOP="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATH_STOP"
 
@@ -17,6 +20,7 @@ echo "Removing GNOME Custom Shortcuts for Antigravity TTS..."
 
 # 1. Reset schemas
 gsettings reset-recursively "$SCHEMA_PLAY" 2>/dev/null || true
+gsettings reset-recursively "$SCHEMA_SPEED" 2>/dev/null || true
 gsettings reset-recursively "$SCHEMA_STOP" 2>/dev/null || true
 
 # 2. Remove paths from list
@@ -31,7 +35,7 @@ try:
 except Exception:
     bindings = []
 
-remove_paths = {'$PATH_PLAY', '$PATH_STOP'}
+remove_paths = {'$PATH_PLAY', '$PATH_SPEED', '$PATH_STOP'}
 filtered = [b for b in bindings if b not in remove_paths]
 
 if filtered:

@@ -135,6 +135,7 @@ echo -e "  1. Open Antigravity IDE and highlight any code or text (English or Hi
 echo -e "  2. Press ${YELLOW}${BOLD}Super + R${NC} to start speaking in natural human voice."
 echo -e "  3. Press ${YELLOW}${BOLD}Super + R${NC} again to ${YELLOW}pause${NC}."
 echo -e "  4. Press ${YELLOW}${BOLD}Super + R${NC} again to ${YELLOW}resume${NC} right from where you stopped."
-echo -e "  5. Press ${YELLOW}${BOLD}Super + Shift + R${NC} to ${RED}completely stop${NC} and reset."
+echo -e "  5. Press ${YELLOW}${BOLD}Super + Alt + R${NC} to ${BLUE}adjust speed / speed up${NC} (1.0x -> 1.25x -> 1.5x -> 1.75x)."
+echo -e "  6. Press ${YELLOW}${BOLD}Super + Shift + R${NC} to ${RED}completely stop${NC} and reset."
 echo -e "\n${BOLD}Configuration File:${NC} $INSTALL_DIR/config.env"
 echo -e "Enjoy listening to your code!"

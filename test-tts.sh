@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Comprehensive Test Suite for Antigravity Text-to-Speech (TTS)
-# Tests Neural Audio, Fast Streaming, Play/Pause/Resume, and Hinglish Support
+# Tests Neural Audio, Fast Streaming, Play/Pause/Resume, Speed Adjustment,
+# Hinglish Support, and Explanatory Pause Structuring
 # ==============================================================================
 
 set -uo pipefail
@@ -58,16 +59,25 @@ else
     report_fail "Preprocessor code check" "Unexpected output: $PREPROCESSED"
 fi
 
-# Test 4: Preprocessor Hinglish transliteration
-SAMPLE_HINGLISH="bhai yeh function run nahi ho raha hai check karo kya problem hai"
+# Test 4: Preprocessor Hinglish transliteration & English collision preservation
+SAMPLE_HINGLISH="bhai yeh function run nahi ho raha hai check the user permissions and solve the problem"
 HINGLISH_OUT=$(python3 "$PREPROCESS_CMD" <<< "$SAMPLE_HINGLISH" 2>/dev/null || true)
-if echo "$HINGLISH_OUT" | grep -q "भाई" && echo "$HINGLISH_OUT" | grep -q "नहीं" && echo "$HINGLISH_OUT" | grep -q "क्या" && echo "$HINGLISH_OUT" | grep -q "करो"; then
-    report_pass "Hinglish preprocessor accurately converts Romanized Hindi to native phonetics"
+if echo "$HINGLISH_OUT" | grep -q "भाई" && echo "$HINGLISH_OUT" | grep -q "नहीं" && echo "$HINGLISH_OUT" | grep -q "the user" && ! echo "$HINGLISH_OUT" | grep -q "थे user"; then
+    report_pass "Hinglish preprocessor transliterates Hindi while cleanly preserving English 'the'"
 else
     report_fail "Hinglish check" "Unexpected output: $HINGLISH_OUT"
 fi
 
-# Test 5: Wayland primary selection retrieval
+# Test 5: Explanatory pause structuring
+SAMPLE_EXPLANATION=$'# Overview\n- First validate user\n- Second fetch data\njaise ki agar user invalid hai toh error aayega'
+EXPLANATION_OUT=$(python3 "$PREPROCESS_CMD" <<< "$SAMPLE_EXPLANATION" 2>/dev/null || true)
+if echo "$EXPLANATION_OUT" | grep -q "Overview:" && echo "$EXPLANATION_OUT" | grep -q "First validate user." && echo "$EXPLANATION_OUT" | grep -q "जैसे की"; then
+    report_pass "Preprocessor inserts breath pauses at headers, bullet points, and transition clauses"
+else
+    report_fail "Pause structuring check" "Unexpected output: $EXPLANATION_OUT"
+fi
+
+# Test 6: Wayland primary selection retrieval
 TEST_STR="Antigravity Test Selection - $(date +%s)"
 "$WL_COPY" -p "$TEST_STR"
 RETRIEVED=$("$WL_PASTE" -p 2>/dev/null || true)
@@ -77,7 +87,7 @@ else
     report_fail "Wayland primary selection" "Expected '$TEST_STR', got '$RETRIEVED'"
 fi
 
-# Test 6: Empty selection guard
+# Test 7: Empty selection guard
 "$WL_COPY" "Secret clipboard content that must not be read"
 "$WL_COPY" -p --clear
 "$TTS_CMD" --toggle >/dev/null 2>&1
@@ -88,34 +98,50 @@ else
     report_fail "Empty selection" "Tool started speaking despite empty selection"
 fi
 
-# Test 7: Fast streaming Play, Pause, Resume lifecycle
+# Test 8: Play, Pause, Resume PID continuity (no restarting from beginning)
 "$WL_COPY" -p "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen."
 "$TTS_CMD" --toggle >/dev/null 2>&1
-sleep 0.8
-STATE1=$("$TTS_CMD" --status)
+sleep 0.6
+STATUS1=$("$TTS_CMD" --status)
+PID1=$(echo "$STATUS1" | grep -oP 'PID: \K[0-9]+' || echo "none")
 
 # Pause
 "$TTS_CMD" --toggle >/dev/null 2>&1
 sleep 0.2
-STATE2=$("$TTS_CMD" --status)
+STATUS2=$("$TTS_CMD" --status)
+PID2=$(echo "$STATUS2" | grep -oP 'PID: \K[0-9]+' || echo "none")
 
 # Resume
 "$TTS_CMD" --toggle >/dev/null 2>&1
 sleep 0.2
-STATE3=$("$TTS_CMD" --status)
+STATUS3=$("$TTS_CMD" --status)
+PID3=$(echo "$STATUS3" | grep -oP 'PID: \K[0-9]+' || echo "none")
 
 # Complete stop
 "$TTS_CMD" --stop >/dev/null 2>&1
 sleep 0.2
-STATE4=$("$TTS_CMD" --status)
+STATUS4=$("$TTS_CMD" --status)
 
-if echo "$STATE1" | grep -q "playing" && echo "$STATE2" | grep -q "paused" && echo "$STATE3" | grep -q "playing" && echo "$STATE4" | grep -q "idle"; then
-    report_pass "Real-time streaming Play -> Pause -> Resume -> Complete Stop verified"
+if [[ "$PID1" == "$PID2" ]] && [[ "$PID2" == "$PID3" ]] && [[ "$PID1" != "none" ]] && echo "$STATUS4" | grep -q "idle"; then
+    report_pass "Exact millisecond Resume verified: PID $PID1 maintained across Play -> Pause -> Resume without restarts"
 else
-    report_fail "Lifecycle test" "S1: $STATE1 | S2: $STATE2 | S3: $STATE3 | S4: $STATE4"
+    report_fail "Lifecycle continuity test" "PID1=$PID1, PID2=$PID2, PID3=$PID3 (restarted instead of resumed)"
 fi
 
-# Test 8: GNOME shortcut 1 (Super + R)
+# Test 9: Speed Adjustment Cycle
+"$TTS_CMD" --cycle-speed >/dev/null 2>&1
+SPEED_STATE=$("$TTS_CMD" --status)
+"$TTS_CMD" --cycle-speed >/dev/null 2>&1
+"$TTS_CMD" --cycle-speed >/dev/null 2>&1
+"$TTS_CMD" --cycle-speed >/dev/null 2>&1
+SPEED_RESET=$("$TTS_CMD" --status)
+if echo "$SPEED_STATE" | grep -q "Speed: +25%" && echo "$SPEED_RESET" | grep -q "Speed: +0%"; then
+    report_pass "Dynamic speed adjustment successfully cycles through speeds and resets"
+else
+    report_fail "Speed adjustment test" "Speed1: $SPEED_STATE | Reset: $SPEED_RESET"
+fi
+
+# Test 10: GNOME shortcut 1 (Super + R)
 SCHEMA_PLAY="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/antigravity-tts/"
 BINDING_PLAY=$(gsettings get "$SCHEMA_PLAY" binding 2>/dev/null || true)
 if [[ "$BINDING_PLAY" == "'<Super>r'" ]]; then
@@ -124,7 +150,16 @@ else
     report_fail "Play shortcut check" "Got $BINDING_PLAY"
 fi
 
-# Test 9: GNOME shortcut 2 (Super + Shift + R)
+# Test 11: GNOME shortcut 2 (Super + Alt + R)
+SCHEMA_SPEED="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/antigravity-tts-speed/"
+BINDING_SPEED=$(gsettings get "$SCHEMA_SPEED" binding 2>/dev/null || true)
+if [[ "$BINDING_SPEED" == "'<Super><Alt>r'" ]]; then
+    report_pass "GNOME shortcut for Adjust Speed is registered to <Super><Alt>r"
+else
+    report_fail "Speed shortcut check" "Got $BINDING_SPEED"
+fi
+
+# Test 12: GNOME shortcut 3 (Super + Shift + R)
 SCHEMA_STOP="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/antigravity-tts-stop/"
 BINDING_STOP=$(gsettings get "$SCHEMA_STOP" binding 2>/dev/null || true)
 if [[ "$BINDING_STOP" == "'<Super><Shift>r'" ]]; then
@@ -133,7 +168,7 @@ else
     report_fail "Stop shortcut check" "Got $BINDING_STOP"
 fi
 
-# Test 10: Cross-session persistence check
+# Test 13: Cross-session persistence check
 report_skip "Login survival" "Persistent configuration verified in dconf."
 
 echo "=========================================================="

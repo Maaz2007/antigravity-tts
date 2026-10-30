@@ -3,6 +3,7 @@
 # Antigravity Text-to-Speech (TTS) Engine
 # Ultra-Realistic Human Speech for Hindi, Hinglish, and English
 # Studio-Grade Edge Neural Voice + Offline Piper Neural Engine Fallback
+# Includes Dynamic Speed Adjustment (<Super><Alt>r) & Complete Stop (<Super><Shift>r)
 # ==============================================================================
 
 set -uo pipefail
@@ -33,9 +34,9 @@ EDGE_RATE="${EDGE_RATE:-+0%}"
 
 PIPER_VOICE="${PIPER_VOICE:-hi_IN-pratham-medium}"
 PIPER_SPEED="${PIPER_SPEED:-0.95}"
-PIPER_SENTENCE_PAUSE="${PIPER_SENTENCE_PAUSE:-0.2}"
-PIPER_NOISE_SCALE="${PIPER_NOISE_SCALE:-0.667}"
-PIPER_NOISE_W="${PIPER_NOISE_W:-0.8}"
+PIPER_SENTENCE_PAUSE="${PIPER_SENTENCE_PAUSE:-0.35}"
+PIPER_NOISE_SCALE="${PIPER_NOISE_SCALE:-0.75}"
+PIPER_NOISE_W="${PIPER_NOISE_W:-0.85}"
 
 ENABLE_PREPROCESSOR="${ENABLE_PREPROCESSOR:-true}"
 FALLBACK_TO_PIPER="${FALLBACK_TO_PIPER:-true}"
@@ -56,6 +57,7 @@ PID_FILE="$STATE_DIR/player.pid"
 SYNTH_PID_FILE="$STATE_DIR/synth.pid"
 FIFO_FILE="$STATE_DIR/audio.pipe"
 TEXT_FILE="$STATE_DIR/current_text.txt"
+SPEED_FILE="$STATE_DIR/speed.conf"
 LOG_FILE="$STATE_DIR/tts.log"
 
 log() {
@@ -70,6 +72,24 @@ notify() {
     if [[ "$ENABLE_NOTIFICATIONS" == "true" ]] && command -v notify-send >/dev/null 2>&1; then
         notify-send -u "$urgency" -a "Antigravity TTS" "$title" "$message" >/dev/null 2>&1 &
     fi
+}
+
+get_active_speed_rate() {
+    if [[ -f "$SPEED_FILE" ]]; then
+        cat "$SPEED_FILE" 2>/dev/null || echo "$EDGE_RATE"
+    else
+        echo "$EDGE_RATE"
+    fi
+}
+
+get_piper_speed_for_rate() {
+    local rate="$1"
+    case "$rate" in
+        "+25%") echo "0.80" ;;
+        "+50%") echo "0.67" ;;
+        "+75%") echo "0.57" ;;
+        *)      echo "0.95" ;;
+    esac
 }
 
 find_clipboard_reader() {
@@ -129,7 +149,7 @@ get_player_state() {
             fi
         fi
         # Stale PID file
-        rm -f "$PID_FILE" "$SYNTH_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
+        rm -f "$PID_FILE" "$SYNTH_PID_FILE" "$FIFO_FILE" 2>/dev/null || true
     fi
     echo "idle"
 }
@@ -148,7 +168,7 @@ get_text_selection() {
     echo "$raw_text"
 }
 
-# Complete Stop: Halts all audio immediately and resets state to idle
+# Complete Stop: Halts all audio immediately, clears queue, and resets state to idle
 stop_speech() {
     local pid=""
     if [[ -f "$PID_FILE" ]]; then
@@ -184,7 +204,7 @@ stop_speech() {
     return 0
 }
 
-# Internal stop without notification (used when restarting with new text)
+# Internal stop without removing TEXT_FILE (used when restarting playback)
 stop_speech_internal() {
     if [[ -f "$PID_FILE" ]]; then
         local pid
@@ -204,7 +224,7 @@ stop_speech_internal() {
     pkill -u "$USER" -x aplay 2>/dev/null || true
     pkill -u "$USER" -x piper 2>/dev/null || true
     pkill -u "$USER" -f "edge-tts" 2>/dev/null || true
-    rm -f "$PID_FILE" "$SYNTH_PID_FILE" "$FIFO_FILE" "$TEXT_FILE" 2>/dev/null || true
+    rm -f "$PID_FILE" "$SYNTH_PID_FILE" "$FIFO_FILE" 2>/dev/null || true
 }
 
 # Pause currently playing audio immediately
@@ -233,7 +253,7 @@ pause_speech() {
     return 0
 }
 
-# Resume paused audio from the exact position
+# Resume paused audio from the exact stopped point
 resume_speech() {
     local resumed_any=0
     if [[ -f "$PID_FILE" ]]; then
@@ -258,6 +278,48 @@ resume_speech() {
         return 0
     fi
     return 1
+}
+
+# Cycle speech speed (Normal 1.0x -> Fast 1.25x -> Super Fast 1.5x -> Turbo 1.75x -> Normal 1.0x)
+cycle_speed() {
+    local current
+    current="$(get_active_speed_rate)"
+    local next_rate="+0%"
+    local label="1.0x (Normal)"
+
+    case "$current" in
+        "+0%"|"1.0x"|"")
+            next_rate="+25%"
+            label="1.25x (Fast)"
+            ;;
+        "+25%"|"1.25x")
+            next_rate="+50%"
+            label="1.5x (Super Fast)"
+            ;;
+        "+50%"|"1.5x")
+            next_rate="+75%"
+            label="1.75x (Turbo)"
+            ;;
+        *)
+            next_rate="+0%"
+            label="1.0x (Normal)"
+            ;;
+    esac
+
+    echo "$next_rate" > "$SPEED_FILE"
+    log "Speed adjusted to $label ($next_rate)"
+    notify "Antigravity TTS Speed" "Speed: $label" "low"
+
+    # If speech is active, restart seamlessly with the new speed so user hears the tempo change immediately
+    local state
+    state="$(get_player_state)"
+    if [[ "$state" == "playing" ]] && [[ -f "$TEXT_FILE" ]]; then
+        local current_text
+        current_text="$(cat "$TEXT_FILE" 2>/dev/null || true)"
+        if [[ -n "$current_text" ]]; then
+            speak_text "$current_text"
+        fi
+    fi
 }
 
 find_edge_tts() {
@@ -286,11 +348,11 @@ select_piper_voice() {
     fi
 
     if [[ $has_hindi -eq 1 ]]; then
-        if [[ -f "$SCRIPT_DIR/voices/hi_IN-pratham-medium.onnx" ]]; then
-            echo "$SCRIPT_DIR/voices/hi_IN-pratham-medium.onnx"
-            return 0
-        elif [[ -f "$SCRIPT_DIR/voices/hi_IN-rohan-medium.onnx" ]]; then
+        if [[ -f "$SCRIPT_DIR/voices/hi_IN-rohan-medium.onnx" ]]; then
             echo "$SCRIPT_DIR/voices/hi_IN-rohan-medium.onnx"
+            return 0
+        elif [[ -f "$SCRIPT_DIR/voices/hi_IN-pratham-medium.onnx" ]]; then
+            echo "$SCRIPT_DIR/voices/hi_IN-pratham-medium.onnx"
             return 0
         fi
     fi
@@ -325,10 +387,19 @@ speak_text() {
         notify "Antigravity TTS" "Selection is large; reading first $MAX_CHARS characters." "low"
     fi
 
-    # Save original text for change detection
-    echo "$text" > "$TEXT_FILE"
+    # Clean existing playback state first
+    stop_speech_internal
 
-    # Fast preprocessor pass for Hinglish transliteration and code symbol cleanup
+    # Save original text for change detection and resume continuity
+    printf '%s' "$text" > "$TEXT_FILE"
+
+    # Active speed rate
+    local active_rate
+    active_rate="$(get_active_speed_rate)"
+    local active_piper_speed
+    active_piper_speed="$(get_piper_speed_for_rate "$active_rate")"
+
+    # Fast preprocessor pass for pause structuring and Hinglish transliteration
     local processed_text="$text"
     if [[ "$ENABLE_PREPROCESSOR" == "true" ]] && [[ -f "$SCRIPT_DIR/preprocess.py" ]] && command -v python3 >/dev/null 2>&1; then
         processed_text="$(python3 "$SCRIPT_DIR/preprocess.py" <<< "$text" 2>/dev/null || echo "$text")"
@@ -336,9 +407,6 @@ speak_text() {
 
     local preview="${text:0:50}"
     preview="$(echo "$preview" | tr '\n' ' ')"
-
-    # Clean existing state
-    stop_speech_internal
 
     # Create FIFO for audio streaming
     rm -f "$FIFO_FILE"
@@ -348,7 +416,7 @@ speak_text() {
     local edge_cmd
     edge_cmd="$(find_edge_tts)"
     if [[ "$TTS_ENGINE" == "edge" ]] && [[ -n "$edge_cmd" ]] && is_online_for_edge; then
-        log "Starting Edge-TTS neural speech (${#processed_text} chars, voice: $EDGE_VOICE)..."
+        log "Starting Edge-TTS neural speech (${#processed_text} chars, voice: $EDGE_VOICE, rate: $active_rate)..."
 
         # Launch audio player on FIFO
         if command -v pw-play >/dev/null 2>&1; then
@@ -362,7 +430,7 @@ speak_text() {
 
         # Launch edge-tts writing to FIFO in background
         (
-            $edge_cmd --voice "$EDGE_VOICE" --rate "$EDGE_RATE" --text "$processed_text" --write-media "$FIFO_FILE" >> "$LOG_FILE" 2>&1
+            $edge_cmd --voice "$EDGE_VOICE" --rate "$active_rate" --text "$processed_text" --write-media "$FIFO_FILE" >> "$LOG_FILE" 2>&1
             rm -f "$SYNTH_PID_FILE" 2>/dev/null || true
         ) &
         local synth_pid=$!
@@ -373,13 +441,13 @@ speak_text() {
         return 0
     fi
 
-    # Method 2: Piper Neural Engine (100% Local Offline Fallback)
+    # Method 2: Piper Neural Engine (100% Local Offline Fallback with Expressive Prosody)
     if [[ -x "$SCRIPT_DIR/bin/piper/piper" ]]; then
         local model_path
         model_path="$(select_piper_voice "$processed_text")"
 
         if [[ -n "$model_path" ]] && [[ -f "$model_path" ]]; then
-            log "Starting Piper neural speech (${#processed_text} chars, model: $(basename "$model_path"))..."
+            log "Starting Piper neural speech (${#processed_text} chars, model: $(basename "$model_path"), speed: $active_piper_speed)..."
 
             if command -v pw-play >/dev/null 2>&1; then
                 pw-play --rate 22050 --channels 1 --format s16 --raw "$FIFO_FILE" >> "$LOG_FILE" 2>&1 &
@@ -393,7 +461,7 @@ speak_text() {
             (
                 "$SCRIPT_DIR/bin/piper/piper" \
                     --model "$model_path" \
-                    --length-scale "$PIPER_SPEED" \
+                    --length-scale "$active_piper_speed" \
                     --sentence-silence "$PIPER_SENTENCE_PAUSE" \
                     --noise-scale "$PIPER_NOISE_SCALE" \
                     --noise-w "$PIPER_NOISE_W" \
@@ -435,7 +503,7 @@ speak_text() {
 
 # Toggle behavior:
 # - If playing: Pause!
-# - If paused: Resume (or start new if new selection detected)!
+# - If paused: Resume (or start new if new text selection detected)!
 # - If idle: Start speaking!
 toggle_speech() {
     local state
@@ -454,8 +522,10 @@ toggle_speech() {
 
         local trimmed_curr
         trimmed_curr="$(echo -n "$current_sel" | tr -d '[:space:]')"
+        local trimmed_old
+        trimmed_old="$(echo -n "$old_sel" | tr -d '[:space:]')"
 
-        if [[ -n "$trimmed_curr" ]] && [[ "$current_sel" != "$old_sel" ]]; then
+        if [[ -n "$trimmed_curr" ]] && [[ "$trimmed_curr" != "$trimmed_old" ]]; then
             log "New selection detected while paused. Restarting with new text..."
             speak_text "$current_sel"
         else
@@ -481,7 +551,9 @@ show_status() {
     if [[ "$TTS_ENGINE" == "piper" ]]; then
         active_voice="$PIPER_VOICE"
     fi
-    echo "Status: $state (PID: ${pid:-none}, Engine: $TTS_ENGINE, Voice: $active_voice)"
+    local speed_rate
+    speed_rate="$(get_active_speed_rate)"
+    echo "Status: $state (PID: ${pid:-none}, Engine: $TTS_ENGINE, Voice: $active_voice, Speed: $speed_rate)"
 }
 
 show_help() {
@@ -494,6 +566,8 @@ Options:
                       - If playing -> PAUSE immediately.
                       - If paused  -> RESUME from where it stopped.
                       - If idle    -> SPEAK selected text instantly. [DEFAULT]
+  --cycle-speed     Cycle speech tempo / speed:
+                      1.0x (Normal) -> 1.25x (Fast) -> 1.5x (Super Fast) -> 1.75x (Turbo) -> 1.0x
   --stop, -x        COMPLETE STOP: Immediately halts all audio, resets state, and clears queue.
   --pause           Pause active playback immediately.
   --resume          Resume paused playback from where it stopped.
@@ -504,6 +578,7 @@ Options:
 
 Shortcuts Configured in GNOME:
   Super + R         Play / Pause / Resume
+  Super + Alt + R   Cycle Speech Speed (Faster / Normal)
   Super + Shift + R Complete Stop (Instant silence & queue reset)
 EOF
 }
@@ -518,6 +593,9 @@ case "${1:-}" in
         ;;
     --resume)
         resume_speech
+        ;;
+    --cycle-speed|--speed)
+        cycle_speed
         ;;
     --speak|-s)
         TEXT="$(get_text_selection)"

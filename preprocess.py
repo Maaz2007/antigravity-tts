@@ -2,16 +2,17 @@
 """
 Text Preprocessor for Antigravity Text-to-Speech (TTS)
 1. Cleans code symbols, markdown artifacts, and programming syntax.
-2. Intelligently converts Romanized Hinglish words to native phonetics (Devanagari)
+2. Structures pause moments, breath pauses, and clause inflection for explanations.
+3. Intelligently converts Romanized Hinglish words to native phonetics (Devanagari)
    for flawless, ultra-realistic, human-like Hindi and Hinglish speech.
-3. Leaves English technical words and standard English sentences completely intact.
+4. Preserves English technical words and standard English sentences completely intact.
 """
 
 import re
 import sys
 
 # High-precision Hinglish (Romanized Hindi) to Devanagari dictionary.
-# Excludes any collisions with English words (e.g. 'to', 'me', 'in', 'is', 'on', 'at', 'do', 'or', 'so').
+# Excludes any collisions with English words (e.g. 'the', 'to', 'in', 'is', 'on', 'at', 'do', 'or', 'so', 'it', 'me').
 HINGLISH_DICTIONARY = {
     # Pronouns & Demonstratives
     "yeh": "यह", "ye": "यह", "woh": "वह", "wo": "वह", "vo": "वह",
@@ -27,20 +28,22 @@ HINGLISH_DICTIONARY = {
     "inka": "इनका", "inki": "इनकी", "inke": "इनके",
     "unka": "उनका", "unki": "उनकी", "unke": "उनके",
     "kisko": "किसको", "jisko": "जिसको", "jiska": "जिसका", "jiski": "जिसकी", "jiske": "जिसके",
-    "kisi": "किसी", "sab": "सब", "sabhi": "सभी", "sabko": "सबको", "log": "लोग", "logo": "लोगों",
+    "kisi": "किसी", "sab": "सब", "sabse": "सबसे", "sabhi": "सभी", "sabko": "सबको", "log": "लोग", "logo": "लोगों",
     "aisa": "ऐसा", "aisi": "ऐसी", "aise": "ऐसे",
     "waisa": "वैसा", "waisi": "वैसी", "waise": "वैसे",
     "kaisa": "कैसा", "kaisi": "कैसी", "kaise": "कैसे", "kese": "कैसे",
+    "jaisa": "जैसा", "jaisi": "जैसी", "jaise": "जैसे",
 
     # Question Words
     "kya": "क्या", "kyun": "क्यों", "kyu": "क्यों", "kyunki": "क्योंकि", "kyoki": "क्योंकि",
     "kahan": "कहाँ", "kaha": "कहाँ", "kab": "कब", "kaun": "कौन", "kon": "कौन",
     "kitna": "कितना", "kitne": "कितने", "kitni": "कितनी",
     "kidhar": "किधर", "jidhar": "जिधर", "idhar": "इधर", "udhar": "उधर",
+    "jahan": "जहाँ", "wahan": "वहाँ", "yahan": "यहाँ",
 
     # Auxiliary & State Verbs (All Tenses & Forms)
     "hai": "है", "hain": "हैं", "ho": "हो", "hoon": "हूँ", "hu": "हूँ",
-    "tha": "था", "thi": "थी", "the": "थे",
+    "tha": "था", "thi": "थी",
     "hoga": "होगा", "hogi": "होगी", "hoge": "होओगे", "honge": "होंगे",
     "hota": "होता", "hoti": "होती", "hote": "होते", "hona": "होना", "hone": "होने",
     "hua": "हुआ", "hue": "हुए", "hui": "हुई",
@@ -64,23 +67,26 @@ HINGLISH_DICTIONARY = {
     "karunga": "करूँगा", "krunga": "करूँगा", "karungi": "करूँगी", "krungi": "करूँगी",
     "karte": "करते", "krte": "करते", "karta": "करता", "krta": "करता", "karti": "करती", "krti": "करती",
     "karoge": "करोगे", "kroge": "करोगे", "kariye": "करिए", "kijiye": "कीजिए",
-    "kiya": "किया", "kiye": "किए", "kii": "की",
+    "karen": "करें", "kare": "करे", "kiya": "किया", "kiye": "किए", "kii": "की",
 
     "dekh": "देख", "dekho": "देखो", "dekha": "देखा", "dekhe": "देखे", "dekhi": "देखी",
     "dekhna": "देखना", "dekhne": "देखने", "dekhte": "देखते", "dekhta": "देखता", "dekhti": "देखती",
     "dekhenge": "देखेंगे", "dekhega": "देखेगा", "dekhegi": "देखेगी", "dekhiye": "देखिए",
+    "dekhen": "देखें",
 
     "samajh": "समझ", "samjh": "समझ", "samjho": "समझो", "samjha": "समझा",
     "samjhe": "समझे", "samjhi": "समझी", "samajhna": "समझना", "samajhne": "समझने",
     "samajhte": "समझते", "samajhta": "समझता", "samajhti": "समझती", "samajhiye": "समझिए",
+    "samjhenge": "समझेंगे", "samjhen": "समझें",
 
     "bata": "बता", "btao": "बताओ", "batao": "बताओ", "bataya": "बताया",
     "bataye": "बताए", "batayi": "बताई", "batana": "बताना", "btana": "बताना",
     "batane": "बताने", "bataenge": "बताएंगे", "bataunga": "बताऊँगा", "bataiye": "बताइए",
+    "bataen": "बताएं",
 
     "bol": "बोल", "bolo": "बोलो", "bola": "बोला", "bole": "बोले", "boli": "बोली",
     "bolna": "बोलना", "bolne": "बोलने", "bolte": "बोलते", "bolta": "बोलता", "bolti": "बोलती",
-    "bolenge": "बोलेंगे", "boliye": "बोलिए",
+    "bolenge": "बोलेंगे", "boliye": "बोलिए", "bolen": "बोलें",
 
     "sun": "सुन", "suno": "सुनो", "suna": "सुना", "sune": "सुने", "suni": "सुनी",
     "sunna": "सुनना", "sunne": "सुनने", "sunte": "सुनते", "sunta": "सुनता", "sunti": "सुनती",
@@ -98,11 +104,13 @@ HINGLISH_DICTIONARY = {
 
     "aao": "आओ", "aana": "आना", "aane": "आने", "aata": "आता", "aati": "आती", "aate": "आते",
     "aaye": "आए", "aayega": "आएगा", "aayegi": "आएगी", "aayenge": "आएंगे",
+    "ayega": "आएगा", "ayegi": "आएगी", "ayenge": "आएंगे",
     "aaya": "आया", "aayi": "आयी", "aaiye": "आइए",
 
     "jao": "जाओ", "jaa": "जा", "jaana": "जाना", "jana": "जाना", "jaane": "जाने",
     "jaate": "जाते", "jaata": "जाता", "jaati": "जाती",
     "jaayega": "जाएगा", "jaayegi": "जाएगी", "jaayenge": "जाएंगे",
+    "jayega": "जाएगा", "jayegi": "जाएगी", "jayenge": "जाएंगे",
     "gaya": "गया", "gayi": "गयी", "gaye": "गए", "jaiye": "जाइए", "jaaiye": "जाइए",
 
     "daal": "डाल", "dal": "डाल", "daalo": "डालो", "dalo": "डालो",
@@ -111,11 +119,11 @@ HINGLISH_DICTIONARY = {
 
     "dena": "देना", "dene": "देने", "diya": "दिया", "diye": "दिए",
     "dete": "देते", "deta": "देता", "deti": "देती", "denge": "देंगे",
-    "dega": "देगा", "degi": "देगी", "dijiye": "दीजिए",
+    "dega": "देगा", "degi": "देगी", "dijiye": "दीजिए", "den": "दें",
 
     "lena": "लेना", "lene": "लेने", "liya": "लिया", "liye": "लिए",
     "lete": "लेते", "leta": "लेता", "leti": "लेती", "lenge": "लेंगे",
-    "lega": "लेगा", "legi": "लेगी", "lijiye": "लीजिए",
+    "lega": "लेगा", "legi": "लेगी", "lijiye": "लीजिए", "len": "लें",
 
     "likho": "लिखो", "likh": "लिख", "likhna": "लिखना", "likhne": "लिखने", "likha": "लिखा", "likhe": "लिखे",
     "padho": "पढ़ो", "padh": "पढ़", "padhna": "पढ़ना", "padhne": "पढ़ने", "padha": "पढ़ा", "padhe": "पढ़े",
@@ -125,7 +133,7 @@ HINGLISH_DICTIONARY = {
     "milega": "मिलेगा", "milegi": "मिलेगी", "milenge": "मिलेंगे",
 
     "rakho": "रखो", "rakh": "रख", "rakhna": "रखना", "rakhne": "रखने",
-    "rakha": "रखा", "rakhe": "रखे", "rakhi": "रखी", "rakhiye": "रखिए",
+    "rakha": "रखा", "rakhe": "रखे", "rakhi": "रखी", "rakhiye": "रखिए", "rakhen": "रखें",
 
     "banao": "बनाओ", "bana": "बना", "banana": "बनाना", "banane": "बनाने",
     "banaya": "बनाया", "banaye": "बनाए", "banayi": "बनाई",
@@ -140,6 +148,12 @@ HINGLISH_DICTIONARY = {
     "soch": "सोच", "socho": "सोचो", "socha": "सोचा", "soche": "सोचे", "sochna": "सोचना", "sochne": "सोचने",
     "bhej": "भेज", "bhejo": "भेजो", "bheja": "भेजा", "bheje": "भेजे", "bhejna": "भेजना", "bhejne": "भेजने",
     "sambhal": "संभाल", "sambhalo": "संभालो", "sambhalna": "संभालना",
+
+    "baith": "बैठ", "baitho": "बैठो", "baitha": "बैठा", "baithe": "बैठे",
+    "baithna": "बैठना", "baithta": "बैठता", "baithte": "बैठते",
+
+    "daba": "दबा", "dabao": "दबाओ", "dabaya": "दबाया", "dabaye": "दबाए", "dabayein": "दबाएं",
+    "dabana": "दबाना", "dabane": "दबाने", "dabate": "दबाते",
 
     # Conjunctions, Adverbs & Particles
     "nahi": "नहीं", "nahin": "नहीं", "nhi": "नहीं", "nhin": "नहीं", "mat": "मत",
@@ -160,6 +174,11 @@ HINGLISH_DICTIONARY = {
     "bohot": "बहुत", "bahut": "बहुत", "bhot": "बहुत", "bhut": "बहुत",
     "zyada": "ज़्यादा", "jyada": "ज़्यादा", "kam": "कम",
     "jaldi": "जल्दी", "dhire": "धीरे", "dheere": "धीरे", "turant": "तुरंत",
+    "tez": "तेज़", "tezi": "तेज़ी",
+    "tarah": "तरह", "tarike": "तरीके", "tareeke": "तरीके", "tarika": "तरीका", "tareeka": "तरीका",
+    "seedha": "सीधा", "sidha": "सीधा",
+    "pura": "पूरा", "puri": "पूरी", "pure": "पूरे",
+    "baar": "बार", "karan": "कारण", "khas": "खास", "khaskar": "खासकर",
     "pehle": "पहले", "pahle": "पहले", "baad": "बाद", "ab": "अब", "abhi": "अभी",
     "tab": "तब", "jab": "जब", "phir": "फिर", "fir": "फिर",
     "shuru": "शुरू", "khatam": "खत्म", "chalu": "चालू", "band": "बंद",
@@ -171,7 +190,6 @@ HINGLISH_DICTIONARY = {
     "hamesha": "हमेशा", "kabhi": "कभी",
     "aaj": "आज", "kal": "कल", "parso": "परसों",
     "din": "दिन", "raat": "रात", "subah": "सुबह", "shaam": "शाम",
-    "yahan": "यहाँ", "wahan": "वहाँ",
     "upar": "ऊपर", "niche": "नीचे", "neeche": "नीचे", "andar": "अंदर", "bahar": "बाहर",
     "paas": "पास", "door": "दूर", "saath": "साथ", "alag": "अलग",
     "samne": "सामने", "piche": "पीछे", "peeche": "पीछे", "aage": "आगे",
@@ -191,8 +209,42 @@ def transliterate_hinglish_words(text: str) -> str:
             return HINGLISH_DICTIONARY[lower_word]
         return word
 
-    # Replace standalone alphanumeric words only
+    # Replace standalone words only
     return re.sub(r"\b[a-zA-Z]+\b", replacer, text)
+
+def apply_conversational_pauses(text: str) -> str:
+    """
+    Inserts gentle pause markers (commas, colons) around key conversational
+    transition words in Hindi & Hinglish so explanations don't rush and sound truly human.
+    """
+    # 1. Add comma pause after introductory clauses if not already punctuated
+    intro_patterns = [
+        r"(?<=\b)(जैसे कि|jaise ki)(?!\s*[,:;।!?])",
+        r"(?<=\b)(उदाहरण के लिए|udaharan ke liye)(?!\s*[,:;।!?])",
+        r"(?<=\b)(देखिए|dekhiye|dekho)(?!\s*[,:;।!?])",
+        r"(?<=\b)(सुनिए|suniye|suno)(?!\s*[,:;।!?])",
+        r"(?<=\b)(सबसे पहले|sabse pehle)(?!\s*[,:;।!?])",
+        r"(?<=\b)(मतलब|matlab)(?!\s*[,:;।!?])",
+        r"(?<=\b)(ध्यान दें|dhyan de)(?!\s*[,:;।!?])",
+        r"(?<=\b)(पहली बात|pehli baat)(?!\s*[,:;।!?])",
+        r"(?<=\b)(दूसरी बात|doosri baat)(?!\s*[,:;।!?])"
+    ]
+    for pattern in intro_patterns:
+        text = re.sub(pattern, r"\1, ", text, flags=re.IGNORECASE)
+
+    # 2. Add comma before explanatory conjunctions if preceded by a clause
+    conj_patterns = [
+        r"(?<=[a-zA-Z0-9\u0900-\u097F])\s+(लेकिन|मगर|lekin|magar)\s+",
+        r"(?<=[a-zA-Z0-9\u0900-\u097F])\s+(क्योंकि|kyunki)\s+",
+        r"(?<=[a-zA-Z0-9\u0900-\u097F])\s+(इसलिए|isliye)\s+"
+    ]
+    for pattern in conj_patterns:
+        text = re.sub(pattern, r", \1 ", text, flags=re.IGNORECASE)
+
+    # Clean double commas and redundant spaces
+    text = re.sub(r",\s*,+", ", ", text)
+    text = re.sub(r"\s+([,.:;।!?])", r"\1", text)
+    return text
 
 def preprocess_text(text: str) -> str:
     if not text:
@@ -202,20 +254,14 @@ def preprocess_text(text: str) -> str:
     text = re.sub(r"```[a-zA-Z0-9_-]*", "", text)
     text = text.replace("`", "")
 
-    # 2. Clean markdown headers (# Title -> Title)
-    text = re.sub(r"^[ \t]*#+[ \t]*", "", text, flags=re.MULTILINE)
+    # 2. Clean URLs to prevent reciting lengthy web links
+    text = re.sub(r"https?://[^\s]+", " link ", text)
 
     # 3. Clean markdown bold and italics (**bold** -> bold, *italic* -> italic)
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"\*([^*]+)\*", r"\1", text)
 
-    # 4. Clean markdown bullet points (* item or - item -> item)
-    text = re.sub(r"^[ \t]*[-*+][ \t]+", "", text, flags=re.MULTILINE)
-
-    # 5. Clean URLs to prevent reciting entire link strings
-    text = re.sub(r"https?://[^\s]+", " link ", text)
-
-    # 6. Natural pronunciation for programming operators
+    # 4. Natural pronunciation for programming operators
     text = re.sub(r"\b!==\b|!=", " not equal to ", text)
     text = re.sub(r"\b===\b|==", " equals ", text)
     text = re.sub(r">=", " greater than or equal to ", text)
@@ -226,22 +272,72 @@ def preprocess_text(text: str) -> str:
     text = re.sub(r"\+\+", " increment ", text)
     text = re.sub(r"--", " decrement ", text)
 
-    # 7. Convert snake_case identifiers into space-separated words
+    # 5. Convert snake_case identifiers into space-separated words
     text = re.sub(r"(?<=[a-zA-Z0-9])_(?=[a-zA-Z0-9])", " ", text)
 
-    # 8. Transliterate Romanized Hinglish words into proper phonetics
+    # 6. Structure lines, headings, and bullet points with breath pauses
+    structured_lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        # Headings (# Title -> Title:)
+        if re.match(r"^#+[ \t]*", stripped):
+            heading = re.sub(r"^#+[ \t]*", "", stripped).strip()
+            if heading and heading[-1] not in ".!?:;।":
+                heading += ":"
+            structured_lines.append(heading)
+            continue
+
+        # Bullet lists (- Item -> Item.)
+        if re.match(r"^[-*+][ \t]+", stripped):
+            item = re.sub(r"^[-*+][ \t]+", "", stripped).strip()
+            if item and item[-1] not in ".!?:;।":
+                item += "."
+            structured_lines.append(item)
+            continue
+
+        # Numbered lists (1. Item -> 1. Item.)
+        m = re.match(r"^(\d+[\.\)])[ \t]+(.*)", stripped)
+        if m:
+            prefix, content = m.groups()
+            content = content.strip()
+            if content and content[-1] not in ".!?:;।":
+                content += "."
+            structured_lines.append(f"{prefix} {content}")
+            continue
+
+        # Code comments (// comment or # comment)
+        if re.match(r"^(//|#)[ \t]*", stripped):
+            comment = re.sub(r"^(//|#)[ \t]*", "", stripped).strip()
+            if comment and comment[-1] not in ".!?:;।":
+                comment += "."
+            structured_lines.append(comment)
+            continue
+
+        # Regular lines
+        structured_lines.append(stripped)
+
+    # Join structured lines
+    text = "\n".join(structured_lines)
+
+    # 7. Transliterate Romanized Hinglish words into proper phonetics
     text = transliterate_hinglish_words(text)
 
-    # 9. Normalize whitespace
-    lines = []
+    # 8. Apply conversational pause structure & cadence
+    text = apply_conversational_pauses(text)
+
+    # 9. Normalize whitespace and sentence flow
+    cleaned_lines = []
     for line in text.splitlines():
         trimmed = re.sub(r"[ \t]+", " ", line).strip()
         if trimmed:
-            lines.append(trimmed)
+            cleaned_lines.append(trimmed)
 
-    cleaned = "\n".join(lines).strip()
+    cleaned = " ".join(cleaned_lines).strip()
 
-    # 10. Natural prosody ending: Ensure sentence finishes with natural cadence
+    # 10. Ensure sentence closure for natural falling cadence
     if cleaned and cleaned[-1] not in ".!?।":
         cleaned += "."
 
